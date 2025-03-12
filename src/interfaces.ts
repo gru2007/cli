@@ -1,7 +1,7 @@
 export interface UppConfig {
    assignees: string[];
    sites: {
-      check?: 'http' | 'tcp-ping';
+      check?: 'tcp-ping' | 'udp-ping' | 'http';
       urlSecretText?: string;
       method?: string;
       name: string;

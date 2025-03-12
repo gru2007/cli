@@ -10,6 +10,7 @@ import {getConfig} from './helpers/config'
 import {commit, lastCommit, push} from './helpers/git'
 import {infoErrorLogger, statusLogger} from './helpers/log'
 import {ping} from './helpers/ping'
+import {udpPing} from './helpers/udp-ping' // <-- Добавляем новый импорт
 import {curl} from './helpers/request'
 import {SiteHistory} from './interfaces'
 import {generateSummary} from './summary'
@@ -64,56 +65,49 @@ export const update = async (shouldCommit = false) => {
         try {
           let status: 'up' | 'down' | 'degraded' = 'up'
           const tcpResult = await ping({
-            // address: replaceEnvironmentVariables(site.url),
-            // port: Number(replaceEnvironmentVariables(site.port ? String(site.port) : '')),
             address: site.url,
             attempts: 5,
             port: Number(site.port),
           })
           if (tcpResult.avg > (site.maxResponseTime || 60000)) status = 'degraded'
-          infoErrorLogger.info(`Got result ${tcpResult}`)
           return {
             result: {httpCode: 200},
             responseTime: (tcpResult.avg || 0).toFixed(0),
             status,
           }
         } catch (error) {
-          infoErrorLogger.info(`Got pinging error ${error}`)
+          return {result: {httpCode: 0}, responseTime: (0).toFixed(0), status: 'down'}
+        }
+      } else if (site.check === 'udp-ping') { // <-- Добавляем блок для UDP
+        infoErrorLogger.info('Using udp-ping instead of curl')
+        try {
+          let status: 'up' | 'down' | 'degraded' = 'up'
+          const udpResult = await udpPing({
+            address: site.url,
+            attempts: 5,
+            port: Number(site.port),
+          })
+          if (udpResult.avg > (site.maxResponseTime || 60000)) status = 'degraded'
+          return {
+            result: {httpCode: 200},
+            responseTime: (udpResult.avg || 0).toFixed(0),
+            status,
+          }
+        } catch (error) {
           return {result: {httpCode: 0}, responseTime: (0).toFixed(0), status: 'down'}
         }
       } else {
         const result = await curl(site)
-        infoErrorLogger.info(`Result from test ${result.httpCode} ${result.totalTime}`)
         const responseTime = (result.totalTime * 1000).toFixed(0)
         const expectedStatusCodes = (
           site.expectedStatusCodes || [
-            200,
-            201,
-            202,
-            203,
-            200,
-            204,
-            205,
-            206,
-            207,
-            208,
-            226,
-            300,
-            301,
-            302,
-            303,
-            304,
-            305,
-            306,
-            307,
-            308,
+            200, 201, 202, 203, 200, 204, 205, 206, 207, 208, 226,
+            300, 301, 302, 303, 304, 305, 306, 307, 308
           ]
         ).map(Number)
         let status: 'up' | 'down' | 'degraded' = expectedStatusCodes.includes(
           Number(result.httpCode)
-        ) ?
-          'up' :
-          'down'
+        ) ? 'up' : 'down'
         if (parseInt(responseTime, 10) > (site.maxResponseTime || 60000)) status = 'degraded'
         if (status === 'up' && typeof result.data === 'string') {
           if (site.__dangerous__body_down && result.data.includes(site.__dangerous__body_down))
